@@ -1,0 +1,103 @@
+FROM stimela/base:1.2.0
+MAINTAINER <sphemakh@gmail.com> 
+#
+# Modified by nadeem for KATHPRFI
+#
+LABEL maintainer="SARAO Data Science <nadeem@ska.ac.za>"
+ARG NB_USER="ubuntu"
+ARG NB_UID="1000"
+ARG NB_GID="1000"
+
+USER root
+ENV TZ=africa/Minsk
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get -yq dist-upgrade \
+ && apt-get install -yq --no-install-recommends \
+    wget \
+    bzip2 \
+    ca-certificates \
+    sudo \
+    locales \
+    fonts-liberation \
+    g++ \
+    gcc \
+    libc6-dev \
+    make \
+    ssh \
+    git \
+    pkg-config \
+    libsnappy-dev \
+    python3-setuptools \
+    python3-dev \
+    python3-tk \
+    build-essential \
+    vim \
+#    libboost-dev \
+#    casacore-dev \
+    python3-casacore
+
+# intalling updated version of pip for user only
+RUN wget https://bootstrap.pypa.io/get-pip.py && \
+    python3 get-pip.py
+
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
+    locale-gen
+
+# Configure environment
+ENV SHELL=/bin/bash \
+    NB_USER=$NB_USER \
+    NB_UID=$NB_UID \
+    NB_GID=$NB_GID \
+    LC_ALL=en_US.UTF-8 \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US.UTF-8
+ENV HOME=/home/$NB_USER
+
+
+# Add a script that we will use to correct permissions after running certain commands
+ADD fix-permissions /usr/local/bin/fix-permissions
+RUN ls -latrh /usr/local/bin/fix-permissions
+RUN chmod +x /usr/local/bin/fix-permissions
+
+# Enable prompt color in the skeleton .bashrc before creating the default NB_USER
+RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc
+
+# Create NB_USER with name specified above with UID=1000 and in the 'users' group
+# and make sure these dirs are writable by the `users` group.
+RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
+    sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
+    sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
+    useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
+    chmod g+w /etc/passwd
+
+#install python requirements file
+COPY Isaacrequirements.txt /tmp/
+RUN pip3 install -r /tmp/Isaacrequirements.txt
+
+RUN pip install -U pip setuptools pyyaml
+RUN pip install katdal[ms,s3]
+
+# Configure container startup
+# Add Tini to fix permissions
+ENV TINI_VERSION v0.18.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+ENTRYPOINT ["/tini", "--"]
+
+RUN fix-permissions $HOME
+
+
+USER $NB_UID
+WORKDIR $HOME
+
+
+#Cmd ["start-notebook.sh"]
+ENV PYTHONPATH "$PYTHONPATH:/usr/lib/python3/dist-packages/:~/.local/lib/python3.6/site-packages"
+
+#CMD ls -l /home/nadeem/DS/KATHPRFI/FLAG_FILES
+
+ENTRYPOINT ["python3", "/home/nadeem/DS/Isaac/kathprfi/kathprfi/kathprfi.py"]
+
+#["-v /home/nadeem/DS/KATHPRFI/RDB_FILES/", "-f# /home/nadeem/DS/KATHPRFI/FLAG_FILES/", "-z /home/nadeem/DS/KATHPRF#I/OUT_ZARR/RunSepOut.zarr", "-g /home/nadeem/DS#/KATHPRFI/GOOD_FILES/good_files.npy", "-b /home/nadeem/DS/KATHPRFI#/BAD_FILES/bad_files.npy"]
